@@ -1,0 +1,618 @@
+/*
+ * YunX (云析) - A network drive share-link parser and high-speed downloader for Android.
+ * Copyright (C) 2026 CYQawa
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package com.yunx.app.ui.screens
+
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import com.yunx.app.R
+import com.yunx.app.ui.SnackbarController
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.yunx.app.ui.items.MultiSelectAction
+import com.yunx.app.ui.items.MultiSelectBar
+import com.yunx.app.ui.components.ScrollToTopButton
+import com.yunx.app.ui.components.YunXLoading
+import com.yunx.app.ui.resolve.DownloadLinkDialog
+import com.yunx.app.ui.resolve.BackToParentItem
+import com.yunx.app.ui.resolve.CrumbBar
+import com.yunx.app.ui.resolve.ShareFileRow
+import com.yunx.app.ui.viewmodel.LanzouCloudUiState
+import com.yunx.app.ui.viewmodel.LanzouCloudViewModel
+import com.yunx.app.ui.theme.effectsDefault
+import com.yunx.app.ui.theme.effectsFast
+import com.yunx.app.ui.theme.ListGroupGap
+import com.yunx.app.ui.theme.listGroupShape
+import com.yunx.app.ui.theme.spatialDefault
+import com.yunx.app.ui.theme.spatialFast
+
+/**
+ * 蓝奏云个人盘浏览页（镜像 123 云盘页）：
+ * 目录浏览 + 下拉刷新 + 长按多选 + 文件操作菜单（下载/重命名/移动/删除/创建分享）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun LanzouCloudScreen(
+    viewModel: LanzouCloudViewModel,
+    scrollBehavior: TopAppBarScrollBehavior,
+    onExit: () -> Unit,
+    onDownloadStarted: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val state by viewModel.uiState.collectAsState()
+    BackHandler {
+        if (viewModel.multiSelectMode) {
+            viewModel.exitMultiSelect()
+        } else {
+            val s = state
+            if (s is LanzouCloudUiState.Loaded && s.pathNames.isNotEmpty()) viewModel.back() else onExit()
+        }
+    }
+    val listState = rememberLazyListState()
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var showSearch by rememberSaveable { mutableStateOf(false) }
+    val scrollPositions = remember { mutableStateMapOf<String, Int>() }
+    // 已应用滚动位置的目录：从在线预览返回时这一项随保存态恢复，同目录不再强制回顶
+    var appliedDirKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val loadedState = state as? LanzouCloudUiState.Loaded
+    val displayFiles = remember(loadedState?.files, searchQuery) {
+        val files = loadedState?.files ?: emptyList()
+        val q = searchQuery.trim()
+        if (q.isEmpty()) files else files.filter { it.fname.contains(q, ignoreCase = true) }
+    }
+    val currentDirKey = remember(loadedState?.pathNames) { loadedState?.pathNames?.joinToString("/") ?: "" }
+    var showActionSheet by remember { mutableStateOf(false) }
+    var showBatchActions by remember { mutableStateOf(false) }
+    var batchInitial by remember { mutableStateOf(BatchStep.MENU) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showCreateFolder by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // 「+」菜单的上传：系统多选文件 → 交给 ViewModel 依次上传到当前目录
+    val pickUpload = rememberUploadPicker { uris ->
+        viewModel.uploadFiles(context.contentResolver, uris)
+    }
+
+    // 上传进度弹窗：点外部不关闭，「取消」会打断正在发的那一段
+    viewModel.uploadProgress?.let { progress ->
+        UploadProgressDialog(progress = progress, onCancel = { viewModel.cancelUpload() })
+    }
+
+    LaunchedEffect(viewModel.cloudMessage) {
+        viewModel.cloudMessage?.let {
+            SnackbarController.show(it)
+            viewModel.consumeMessage()
+        }
+    }
+    LaunchedEffect(viewModel.downloadTriggered) {
+        if (viewModel.downloadTriggered > 0) {
+            viewModel.consumeDownloadTriggered()
+            onDownloadStarted()
+        }
+    }
+
+    viewModel.downloadLink?.let { link ->
+        DownloadLinkDialog(
+            link = link,
+            onDownload = { viewModel.startDownload() },
+            onDismiss = { viewModel.dismissDownloadDialog() }
+        )
+    }
+
+    Surface(
+        modifier = modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        AnimatedContent(
+            targetState = state,
+            transitionSpec = { fadeIn(effectsDefault()) togetherWith fadeOut(effectsFast()) },
+            label = "lanzouCloudState"
+        ) { s ->
+            when (s) {
+                is LanzouCloudUiState.Loading -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) { YunXLoading() }
+
+                is LanzouCloudUiState.Error -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = s.message,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 32.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(onClick = onExit) { Text(stringResource(R.string.csb_cloud_back)) }
+                            TextButton(onClick = { viewModel.loadRoot() }) { Text(stringResource(R.string.csb_cloud_retry)) }
+                        }
+                    }
+                }
+
+                is LanzouCloudUiState.Loaded -> Box(modifier = Modifier.fillMaxSize()) {
+                    val loadedKey = remember(s.pathNames) { s.pathNames.joinToString("/") }
+                    LaunchedEffect(loadedKey) {
+                        // 切换目录才重置滚动；同目录的重组（如从预览页返回）交给 listState 自己的保存态恢复
+                        if (appliedDirKey == loadedKey) return@LaunchedEffect
+                        appliedDirKey = loadedKey
+                        listState.scrollToItem(scrollPositions[loadedKey] ?: 0)
+                    }
+                    PullToRefreshBox(
+                        isRefreshing = viewModel.refreshing,
+                        onRefresh = { viewModel.refresh() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .nestedScroll(scrollBehavior.nestedScrollConnection),
+                            contentPadding = PaddingValues(
+                                start = 16.dp, end = 16.dp, top = 16.dp,
+                                bottom = if (viewModel.multiSelectMode) 96.dp else 16.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(ListGroupGap)
+                        ) {
+                            item {
+                                Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        if (viewModel.multiSelectMode) {
+                                            IconButton(onClick = { viewModel.exitMultiSelect() }) {
+                                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.csb_cloud_cancel_select))
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.csb_cloud_selected_count, viewModel.selected.size),
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    text = if (viewModel.selected.size == displayFiles.size) stringResource(R.string.csb_cloud_all_selected) else stringResource(R.string.csb_cloud_select_more),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            TextButton(onClick = { viewModel.toggleSelectAll(displayFiles) }) {
+                                                Text(if (viewModel.selected.size == displayFiles.size) stringResource(R.string.csb_cloud_deselect_all) else stringResource(R.string.csb_cloud_select_all))
+                                            }
+                                        } else {
+                                            IconButton(onClick = onExit) {
+                                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.csb_cloud_back))
+                                            }
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.csb_drive_name_lanzou),
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    fontWeight = FontWeight.Medium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    text = if (searchQuery.isBlank()) stringResource(R.string.csb_cloud_total_count, s.files.size)
+                                                    else stringResource(R.string.csb_cloud_match_count, displayFiles.size, s.files.size),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            IconButton(onClick = { showSearch = !showSearch }) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.Search,
+                                                    contentDescription = if (showSearch) stringResource(R.string.csb_cloud_close_search) else stringResource(R.string.csb_cloud_search_files),
+                                                    tint = if (showSearch) MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                                                                        CloudAddMenu(
+                                                                                            onCreateFolder = { showCreateFolder = true },
+                                                                                            onUploadFile = pickUpload
+                                                                                        )
+                                        }
+                                    }
+                                    if (!viewModel.multiSelectMode) {
+                                        CrumbBar(
+                                            rootTitle = stringResource(R.string.csb_drive_name_lanzou),
+                                            pathNames = s.pathNames,
+                                            onNavigate = { level ->
+                                                scrollPositions[currentDirKey] = listState.firstVisibleItemIndex
+                                                viewModel.navigateToLevel(level)
+                                            }
+                                        )
+                                    }
+                                    AnimatedVisibility(
+                                        visible = showSearch && !viewModel.multiSelectMode,
+                                        enter = expandVertically(spatialDefault()) + fadeIn(effectsDefault()),
+                                        exit = shrinkVertically(spatialFast()) + fadeOut(effectsFast())
+                                    ) {
+                                        Column {
+                                            Spacer(modifier = Modifier.height(10.dp))
+                                            OutlinedTextField(
+                                                value = searchQuery,
+                                                onValueChange = { searchQuery = it },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                placeholder = { Text(stringResource(R.string.csb_cloud_search_placeholder)) },
+                                                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                                                trailingIcon = {
+                                                    if (searchQuery.isNotEmpty()) {
+                                                        IconButton(onClick = { searchQuery = "" }) {
+                                                            Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.csb_cloud_clear_search))
+                                                        }
+                                                    }
+                                                },
+                                                singleLine = true,
+                                                shape = MaterialTheme.shapes.large
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (s.pathNames.isNotEmpty()) {
+                                item {
+                                    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                                        BackToParentItem(onClick = {
+                                            scrollPositions[currentDirKey] = listState.firstVisibleItemIndex
+                                            viewModel.back()
+                                        })
+                                    }
+                                }
+                            }
+
+                            if (displayFiles.isEmpty()) {
+                                item {
+                                    Text(
+                                        text = if (s.files.isEmpty()) stringResource(R.string.csb_cloud_empty_dir) else stringResource(R.string.csb_cloud_no_match, searchQuery.trim()),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+
+                            itemsIndexed(displayFiles, key = { _, f -> f.fid }) { index, file ->
+                                ShareFileRow(
+                                    file = file,
+                                    shape = listGroupShape(index, displayFiles.size),
+                                    onClick = {
+                                        if (viewModel.multiSelectMode) {
+                                            viewModel.toggleSelect(file)
+                                        } else if (file.isdir) {
+                                            scrollPositions[currentDirKey] = listState.firstVisibleItemIndex
+                                            viewModel.openFolder(file)
+                                        } else {
+                                            viewModel.openActions(file)
+                                            showActionSheet = true
+                                        }
+                                    },
+                                    onMore = if (!viewModel.multiSelectMode && file.isdir) {
+                                        {
+                                            viewModel.openActions(file)
+                                            showActionSheet = true
+                                        }
+                                    } else null,
+                                    onLongClick = if (!viewModel.multiSelectMode) {
+                                        { viewModel.enterMultiSelect(file) }
+                                    } else null,
+                                    selected = viewModel.selected.contains(file),
+                                    showCheckbox = viewModel.multiSelectMode
+                                )
+                            }
+                        }
+                    }
+
+                    ScrollToTopButton(
+                        listState = listState,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = if (viewModel.multiSelectMode) 104.dp else 16.dp)
+                    )
+
+                    AnimatedVisibility(
+                        visible = viewModel.multiSelectMode,
+                        enter = slideInVertically(spatialDefault()) { it } + fadeIn(effectsDefault()),
+                        exit = slideOutVertically(spatialFast()) { it } + fadeOut(effectsFast()),
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        MultiSelectBar(
+                            busy = viewModel.isOperating,
+                            count = viewModel.selected.size,
+                            actions = listOf(
+                                MultiSelectAction(stringResource(R.string.csb_action_download), Icons.Outlined.Download, MaterialTheme.colorScheme.primary) {
+                                    viewModel.downloadSelected()
+                                },
+                                MultiSelectAction(stringResource(R.string.csb_action_share), Icons.Outlined.Share, MaterialTheme.colorScheme.primary) {
+                                    batchInitial = BatchStep.SHARE
+                                    showBatchActions = true
+                                },
+                                MultiSelectAction(stringResource(R.string.csb_action_move), Icons.Outlined.DriveFileMove, MaterialTheme.colorScheme.primary) {
+                                    batchInitial = BatchStep.MOVE
+                                    showBatchActions = true
+                                },
+                                MultiSelectAction(stringResource(R.string.csb_action_delete), Icons.Outlined.Delete, MaterialTheme.colorScheme.error) {
+                                    showDeleteConfirm = true
+                                }
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    val pendingDeleteTarget = when {
+        !showDeleteConfirm -> null
+        viewModel.multiSelectMode -> stringResource(R.string.csb_cloud_selected_items_count, viewModel.selected.size)
+        else -> viewModel.actionFile?.let { stringResource(R.string.csb_cloud_quote_name, it.fname) }
+    }
+    if (pendingDeleteTarget != null) {
+        ConfirmDeleteSheet(
+            target = pendingDeleteTarget,
+            operating = viewModel.isOperating,
+            onDismiss = {
+                showDeleteConfirm = false
+                viewModel.dismissActions()
+            },
+            onConfirm = { if (viewModel.multiSelectMode) viewModel.deleteSelected() else viewModel.deleteFile() }
+        )
+    } else if (showActionSheet && viewModel.actionFile != null) {
+        FileActionSheet(
+            file = viewModel.actionFile!!,
+            operating = viewModel.isOperating,
+            onDownload = { viewModel.downloadFile() },
+            onDownloadFolder = { viewModel.downloadFolder() },
+            // 在线预览（图片）：取链成功后 ViewModel 清空 actionFile，弹窗随之消失；失败则留在弹窗里报错
+            onPreview = { viewModel.openPreview() },
+            onShare = { _, _, _ -> viewModel.shareFile() },
+            onRename = { viewModel.renameFile(it) },
+            onConfirmDelete = { viewModel.deleteFile() },
+            onDismiss = {
+                showActionSheet = false
+                viewModel.dismissActions()
+            },
+            moveStep = { onBack, onDone ->
+                LanzouMoveStep(
+                    subtitle = viewModel.actionFile?.fname ?: "",
+                    viewModel = viewModel,
+                    onBack = onBack,
+                    onDone = onDone
+                )
+            }
+        )
+    }
+
+    if (showBatchActions) {
+        BatchActionSheet(
+            count = viewModel.selected.size,
+            operating = viewModel.isOperating,
+            onDownload = { viewModel.downloadSelected() },
+            onShare = { _, _, _ -> viewModel.shareSelected() },
+            onDelete = {
+                showBatchActions = false
+                showDeleteConfirm = true
+            },
+            onDismiss = { showBatchActions = false },
+            initialStep = batchInitial,
+            moveStep = { onBack, onDone ->
+                LanzouMoveStep(
+                    subtitle = stringResource(R.string.csb_cloud_selected_count, viewModel.selected.size),
+                    viewModel = viewModel,
+                    onBack = onBack,
+                    onDone = onDone
+                )
+            }
+        )
+    }
+
+    if (showCreateFolder) {
+        CreateFolderDialog(
+            onDismiss = { showCreateFolder = false },
+            onConfirm = { name ->
+                showCreateFolder = false
+                viewModel.createFolder(name)
+            }
+        )
+    }
+
+    viewModel.shareResult?.let { info ->
+        ShareResultDialog(
+            info = info,
+            onDismiss = { viewModel.dismissShareResult() }
+        )
+    }
+
+    if (viewModel.isOperating) {
+        AlertDialog(
+            onDismissRequest = { },
+            confirmButton = { },
+            dismissButton = {
+                TextButton(onClick = { viewModel.cancelDownload() }) {
+                    Text(stringResource(R.string.csb_cloud_interrupt), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            title = { Text(stringResource(R.string.csb_cloud_processing_title)) },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    YunXLoading(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = viewModel.folderProgress ?: stringResource(R.string.csb_cloud_processing_body),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        )
+    }
+}
+
+/** 移动目录选择弹窗（独立浏览，不影响主列表） */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanzouMoveStep(
+    subtitle: String,
+    viewModel: LanzouCloudViewModel,
+    onBack: () -> Unit,
+    onDone: () -> Unit
+) {
+    val moveState by viewModel.moveUiState.collectAsState()
+    LaunchedEffect(Unit) { viewModel.openMoveRoot() }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 32.dp)
+    ) {
+        StepHeader(title = stringResource(R.string.csb_move_to_title), subtitle = subtitle, onBack = onBack)
+        Spacer(modifier = Modifier.height(8.dp))
+        CrumbBar(
+            rootTitle = stringResource(R.string.csb_move_root_dir),
+            pathNames = (moveState as? LanzouCloudUiState.Loaded)?.pathNames ?: emptyList(),
+            onNavigate = { viewModel.moveNavigateToLevel(it) }
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        if ((moveState as? LanzouCloudUiState.Loaded)?.pathNames?.isNotEmpty() == true) {
+            BackToParentItem(onClick = { viewModel.moveBack() })
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        AnimatedContent(
+            targetState = moveState,
+            transitionSpec = { fadeIn(effectsDefault()) togetherWith fadeOut(effectsFast()) },
+            label = "lanzouMoveState"
+        ) { s ->
+            when (s) {
+                is LanzouCloudUiState.Loading -> Box(
+                    modifier = Modifier.fillMaxWidth().height(180.dp),
+                    contentAlignment = Alignment.Center
+                ) { YunXLoading() }
+
+                is LanzouCloudUiState.Error -> Box(
+                    modifier = Modifier.fillMaxWidth().height(140.dp),
+                    contentAlignment = Alignment.Center
+                ) { Text(s.message, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+
+                is LanzouCloudUiState.Loaded -> {
+                    val dirs = s.files.filter { it.isdir }
+                    if (dirs.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth().height(90.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                stringResource(R.string.csb_move_no_subfolder),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                            verticalArrangement = Arrangement.spacedBy(ListGroupGap)
+                        ) {
+                            itemsIndexed(dirs, key = { _, d -> d.fid }) { index, dir ->
+                                ShareFileRow(
+                                    file = dir,
+                                    onClick = { viewModel.openMoveFolder(dir) },
+                                    shape = listGroupShape(index, dirs.size)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        val dirName = (moveState as? LanzouCloudUiState.Loaded)?.pathNames?.lastOrNull() ?: stringResource(R.string.csb_move_root_dir)
+        Button(
+            onClick = {
+                val to = (moveState as? LanzouCloudUiState.Loaded)?.dirId ?: "-1"
+                if (viewModel.multiSelectMode) viewModel.moveSelected(to) else viewModel.moveFile(to)
+                onDone()
+            },
+            modifier = Modifier.fillMaxWidth().height(50.dp)
+        ) {
+            Icon(Icons.Outlined.DriveFileMove, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(stringResource(R.string.csb_move_here_with_dir, dirName))
+        }
+    }
+}

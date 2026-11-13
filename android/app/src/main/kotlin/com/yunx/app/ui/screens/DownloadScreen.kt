@@ -1,0 +1,1382 @@
+/*
+ * YunX (云析) - A network drive share-link parser and high-speed downloader for Android.
+ * Copyright (C) 2026 CYQawa
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+package com.yunx.app.ui.screens
+
+import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.outlined.BugReport
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.ExpandLess
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.InsertDriveFile
+import androidx.compose.material.icons.outlined.OpenInNew
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SystemUpdate
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import com.yunx.app.R
+import com.yunx.app.data.db.DownloadTaskEntity
+import com.yunx.app.data.download.DownloadStats
+import com.yunx.app.data.download.MagnetLink
+import com.yunx.app.ui.SnackbarController
+import com.yunx.app.util.AppStrings
+import com.yunx.app.ui.viewmodel.DownloadViewModel
+import com.yunx.app.ui.components.FileNameText
+import com.yunx.app.ui.components.YunXWavyProgress
+import com.yunx.app.ui.theme.effectsDefault
+import com.yunx.app.ui.theme.effectsFast
+import com.yunx.app.ui.theme.spatialDefault
+import com.yunx.app.ui.theme.spatialFast
+import java.io.File
+
+/**
+ * 下载页：任务列表（分片多线程下载 / 断点续传）、进度展示、暂停/继续/删除/打开。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DownloadScreen(
+    scrollBehavior: TopAppBarScrollBehavior,
+    viewModel: DownloadViewModel,
+    /** 下载调试开关（设置 → 关于云析 → 长按 → 开发调试）：开启后长按任务菜单里出现「调试信息」 */
+    downloadDebug: Boolean = false,
+    /** 深链接进来的直链 / 磁力：预填「添加下载任务」弹窗，用户确认后入队；null = 没有 */
+    incomingAddUrl: String? = null,
+    /** [incomingAddUrl] 被接手后回调（宿主清空，避免重组时重复弹窗） */
+    onIncomingAddUrlConsumed: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val tasks by viewModel.tasks.collectAsState()
+    val stats by viewModel.stats.collectAsState()
+    var showAddDialog by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<DownloadTaskEntity?>(null) }
+    var showDeleteAllConfirm by remember { mutableStateOf(false) }
+    // 「调试信息」页打开的任务 id（null = 不显示）。本页在「下载」Tab 内全屏展开，与 ResolveScreen 内嵌
+    // ShareDetailScreen 同款（不是 MainScreen 的叠加页，可直接复用下载页的卡片与格式化口径）。
+    var debugTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
+    // 任务可能在调试页打开期间被删除：取不到就自动退回列表（不用再手动关页）
+    val debugTask = debugTaskId?.let { id -> tasks.firstOrNull { it.id == id } }
+    if (debugTask != null) {
+        DownloadDebugScreen(
+            task = debugTask,
+            stats = stats[debugTask.id],
+            viewModel = viewModel,
+            onPause = { viewModel.pause(debugTask.id) },
+            onResume = { viewModel.resume(debugTask.id) },
+            onBack = { debugTaskId = null },
+            modifier = modifier
+        )
+        return
+    }
+
+    // Android 9- 写公共目录需要 WRITE_EXTERNAL_STORAGE
+    val needLegacyPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) showAddDialog = true
+        else SnackbarController.show(AppStrings.get(R.string.dl_snack_need_storage_permission))
+    }
+    val hasPermission = remember {
+        if (needLegacyPermission) {
+            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                PackageManager.PERMISSION_GRANTED
+        } else true
+    }
+
+    // 深链接进来的直链 / 磁力：只是**预填**弹窗，不直接入队 —— 磁力只有 Gopeed 引擎能下、
+    // 低版本还可能缺存储权限，让用户在自己看得见的弹窗里点一次确认更稳妥。
+    var addDialogInitialUrl by rememberSaveable { mutableStateOf("") }
+    LaunchedEffect(incomingAddUrl) {
+        val url = incomingAddUrl?.trim().orEmpty()
+        if (url.isEmpty()) return@LaunchedEffect
+        addDialogInitialUrl = url
+        if (needLegacyPermission && !hasPermission) {
+            // 与右下角「+」同一条路：先申请存储权限，授权成功后弹窗会自动打开（见 permissionLauncher）
+            permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            showAddDialog = true
+        }
+        onIncomingAddUrlConsumed()
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        if (tasks.isEmpty()) {
+            EmptyDownloadState(modifier = Modifier.align(Alignment.Center))
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 批量操作栏：全部暂停 / 全部开始 / 删除全部
+                DownloadBatchBar(
+                    hasActive = tasks.any {
+                        it.status == DownloadTaskEntity.STATUS_DOWNLOADING ||
+                            it.status == DownloadTaskEntity.STATUS_PENDING
+                    },
+                    hasResumable = tasks.any {
+                        it.status == DownloadTaskEntity.STATUS_PAUSED ||
+                            it.status == DownloadTaskEntity.STATUS_FAILED
+                    },
+                    onPauseAll = { viewModel.pauseAll() },
+                    onResumeAll = { viewModel.resumeAll() },
+                    onDeleteAll = { showDeleteAllConfirm = true }
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .nestedScroll(scrollBehavior.nestedScrollConnection),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 根目录任务（无相对路径）单独显示
+                    val rootTasks = tasks.filter { !it.fileName.contains('/') }
+                    // 文件夹下载任务：按「顶级目录」分组（整个文件夹归为一组，内部子文件夹不拆开）
+                    val folderGroups = tasks.filter { it.fileName.contains('/') }
+                        .groupBy { it.fileName.substringBefore('/') }
+
+                    items(rootTasks, key = { it.id }) { task ->
+                        DownloadTaskCard(
+                            task = task,
+                            stats = stats[task.id],
+                            onPause = { viewModel.pause(task.id) },
+                            onResume = { viewModel.resume(task.id) },
+                            onRemove = { pendingDelete = task },
+                            onRedownload = { viewModel.redownload(task) },
+                            downloadDebug = downloadDebug,
+                            onOpenDebug = { debugTaskId = it }
+                        )
+                    }
+
+                    folderGroups.forEach { (folder, groupTasks) ->
+                        item(key = "folder_$folder") {
+                            FolderDownloadGroup(
+                                folder = folder,
+                                tasks = groupTasks,
+                                stats = stats,
+                                onPause = { viewModel.pause(it) },
+                                onResume = { viewModel.resume(it) },
+                                onRemove = { pendingDelete = it },
+                                onRedownload = { viewModel.redownload(it) },
+                                downloadDebug = downloadDebug,
+                                onOpenDebug = { debugTaskId = it }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // 添加任务 FAB（手动粘贴直链 / 磁力链接的唯一入口）
+        // ★ 曾经被 c829083「添加关于页」误删（连同 permissionLauncher/hasPermission 变成死代码、
+        //   空状态文案却还在说「点击右下角按钮」）——恢复时注意别再连着删掉。
+        FloatingActionButton(
+            onClick = {
+                if (needLegacyPermission && !hasPermission) {
+                    permissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                } else {
+                    showAddDialog = true
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.dl_add_task))
+        }
+    }
+
+    if (showAddDialog) {
+        AddDownloadDialog(
+            initialUrl = addDialogInitialUrl,
+            onDismiss = {
+                showAddDialog = false
+                addDialogInitialUrl = ""
+            },
+            onConfirm = { url, name ->
+                showAddDialog = false
+                addDialogInitialUrl = ""
+                viewModel.enqueue(url, name)
+            }
+        )
+    }
+
+    // 删除二次确认（可选同时删除本地文件）
+    pendingDelete?.let { task ->
+        DeleteConfirmDialog(
+            task = task,
+            onDismiss = { pendingDelete = null },
+            onConfirm = { deleteLocal ->
+                pendingDelete = null
+                viewModel.remove(task.id, deleteLocal)
+            }
+        )
+    }
+
+    // 删除全部任务二次确认（可选同时删除本地文件）
+    if (showDeleteAllConfirm) {
+        var deleteAllLocal by remember { mutableStateOf(false) }
+        val hasCompletedFile = tasks.any {
+            it.status == DownloadTaskEntity.STATUS_COMPLETED && it.savePath.isNotBlank()
+        }
+        AlertDialog(
+            onDismissRequest = { showDeleteAllConfirm = false },
+            title = { Text(stringResource(R.string.dl_delete_all_title)) },
+            text = {
+                // 横屏/小屏时内容超高可滚动，避免按钮被挤出屏幕
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.dl_delete_all_message),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    if (hasCompletedFile) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                // 整行可点：只让复选框可点则命中范围太小（行内自带 48dp 最小触摸目标）
+                                .clip(RoundedCornerShape(10.dp))
+                                .toggleable(
+                                    value = deleteAllLocal,
+                                    role = Role.Checkbox,
+                                    onValueChange = { deleteAllLocal = it }
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // 48dp 容器补回最小触摸目标的尺寸：onCheckedChange = null 的复选框不再自带
+                            // 那层 48dp 内边距，直接放会让图标和整行都变矮（视觉上「复选框变小了」）
+                            Box(
+                                modifier = Modifier.size(48.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Checkbox(
+                                    checked = deleteAllLocal,
+                                    // null = 只作展示，点击统一由整行处理，避免两处各响应一次
+                                    onCheckedChange = null
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = stringResource(R.string.dl_delete_local_file),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.dl_delete_all_local_hint),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteAllConfirm = false
+                        viewModel.removeAll(deleteAllLocal)
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) { Text(stringResource(R.string.dl_delete_all_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteAllConfirm = false }) { Text(stringResource(R.string.action_cancel)) }
+            }
+        )
+    }
+}
+
+/** 批量操作栏：全部暂停 / 全部开始 / 删除全部（Material3 紧凑按钮，无可用操作时禁用） */
+@Composable
+private fun DownloadBatchBar(
+    hasActive: Boolean,
+    hasResumable: Boolean,
+    onPauseAll: () -> Unit,
+    onResumeAll: () -> Unit,
+    onDeleteAll: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        TextButton(onClick = onPauseAll, enabled = hasActive) {
+            Icon(
+                imageVector = Icons.Outlined.Pause,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(stringResource(R.string.dl_pause_all))
+        }
+        TextButton(onClick = onResumeAll, enabled = hasResumable) {
+            Icon(
+                imageVector = Icons.Outlined.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(stringResource(R.string.dl_resume_all))
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        TextButton(onClick = onDeleteAll) {
+            Icon(
+                imageVector = Icons.Outlined.Delete,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(stringResource(R.string.dl_delete_all), color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+@Composable
+private fun DeleteConfirmDialog(
+    task: DownloadTaskEntity,
+    onDismiss: () -> Unit,
+    onConfirm: (deleteLocal: Boolean) -> Unit
+) {
+    var deleteLocal by remember { mutableStateOf(false) }
+    val hasLocalFile = task.status == DownloadTaskEntity.STATUS_COMPLETED && task.savePath.isNotBlank()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dl_delete_task_title)) },
+        text = {
+            // 横屏/小屏时内容超高可滚动，避免按钮被挤出屏幕
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.dl_delete_task_message, task.fileName),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                if (hasLocalFile) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            // 整行可点：只让复选框可点则命中范围太小（行内自带 48dp 最小触摸目标）
+                            .clip(RoundedCornerShape(10.dp))
+                            .toggleable(
+                                value = deleteLocal,
+                                role = Role.Checkbox,
+                                onValueChange = { deleteLocal = it }
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 48dp 容器补回最小触摸目标的尺寸：onCheckedChange = null 的复选框不再自带
+                        // 那层 48dp 内边距，直接放会让图标和整行都变矮（视觉上「复选框变小了」）
+                        Box(
+                            modifier = Modifier.size(48.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Checkbox(
+                                checked = deleteLocal,
+                                // null = 只作展示，点击统一由整行处理，避免两处各响应一次
+                                onCheckedChange = null
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = stringResource(R.string.dl_delete_local_file),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                Text(
+                    text = if (hasLocalFile) {
+                        stringResource(R.string.dl_delete_local_hint)
+                    } else if (task.status == DownloadTaskEntity.STATUS_COMPLETED) {
+                        stringResource(R.string.dl_delete_no_local_file)
+                    } else {
+                        stringResource(R.string.dl_delete_unfinished_hint)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(deleteLocal) },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) { Text(stringResource(R.string.dl_delete)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        }
+    )
+}
+
+@Composable
+private fun EmptyDownloadState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            modifier = Modifier.size(64.dp),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceContainerHighest
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Outlined.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = stringResource(R.string.dl_empty_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = stringResource(R.string.dl_empty_hint),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+    }
+}
+
+/**
+ * 文件夹下载组：同一「顶级目录」下的所有任务合并为一个可展开卡片。
+ * 收起时显示文件夹名 + 统计 + 总体进度；展开后显示子任务（含子文件夹内文件）紧凑列表。
+ */
+@Composable
+private fun FolderDownloadGroup(
+    folder: String,
+    tasks: List<DownloadTaskEntity>,
+    stats: Map<Long, DownloadStats>,
+    onPause: (Long) -> Unit,
+    onResume: (Long) -> Unit,
+    onRemove: (DownloadTaskEntity) -> Unit,
+    onRedownload: (DownloadTaskEntity) -> Unit,
+    /** 下载调试：开启时组内子任务的长按菜单也出现「调试信息」 */
+    downloadDebug: Boolean = false,
+    onOpenDebug: (Long) -> Unit = {}
+) {
+    // 用 rememberSaveable：LazyColumn 的 item 滚出屏幕会被销毁，remember 会把它复位成「展开」，
+    // 用户收起的文件夹一滚动就又弹开了（saveable 状态按 item key 保存，滚回来仍是收起）
+    var expanded by rememberSaveable { mutableStateOf(true) }
+    val completed = tasks.count { it.status == DownloadTaskEntity.STATUS_COMPLETED }
+    val totalSize = tasks.sumOf { it.totalSize }
+    // 聚合显示钳制：任何单项竞态残留都不会让"已下载 > 总大小"
+    val downloaded = minOf(tasks.sumOf { it.downloadedSize }, totalSize)
+    val fraction = if (totalSize > 0) {
+        (downloaded.toFloat() / totalSize).coerceIn(0f, 1f)
+    } else 0f
+    val done = completed == tasks.size
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column {
+            // 头部：点击展开/收起
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(start = 14.dp, end = 10.dp, top = 12.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // 文件夹图标（圆角方块，主色容器）
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Folder,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    FileNameText(
+                        text = folder,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(
+                            R.string.dl_folder_count,
+                            completed, tasks.size, formatSize(downloaded), formatSize(totalSize)
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 总体进度徽标（有子任务在合并分片时显示"合并中"，避免停在 100% 像卡死）
+                val merging = tasks.any { (stats[it.id]?.mergePercent ?: -1) >= 0 }
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = if (done) {
+                        MaterialTheme.colorScheme.secondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHighest
+                    }
+                ) {
+                    Text(
+                        text = when {
+                            done -> stringResource(R.string.dl_status_done)
+                            merging -> stringResource(R.string.dl_status_merging)
+                            else -> "${(fraction * 100).toInt()}%"
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (done) {
+                            MaterialTheme.colorScheme.onSecondaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(2.dp))
+                Icon(
+                    imageVector = if (expanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                    contentDescription = if (expanded) stringResource(R.string.dl_collapse) else stringResource(R.string.dl_expand),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            // 展开区：总体进度条 + 子任务紧凑列表
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(effectsDefault()) + expandVertically(spatialDefault(), expandFrom = Alignment.Top),
+                exit = fadeOut(effectsFast()) + shrinkVertically(spatialFast(), shrinkTowards = Alignment.Top)
+            ) {
+                Column {
+                    // 总体进度条（已完成时隐藏）；Expressive 波浪进度条（仅在有子任务下载中时起伏）
+                    if (!done) {
+                        YunXWavyProgress(
+                            progress = { fraction },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                            waving = tasks.any { it.status == DownloadTaskEntity.STATUS_DOWNLOADING }
+                        )
+                    }
+                    // 子任务列表（紧凑行，含子文件夹内文件）
+                    Column(
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        tasks.forEach { task ->
+                            DownloadSubTaskRow(
+                                task = task,
+                                stats = stats[task.id],
+                                onPause = { onPause(task.id) },
+                                onResume = { onResume(task.id) },
+                                onRemove = { onRemove(task) },
+                                onRedownload = { onRedownload(task) },
+                                downloadDebug = downloadDebug,
+                                onOpenDebug = onOpenDebug
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 文件夹组内子任务紧凑行：相对路径 + 状态 + 进度条 + 操作按钮。
+ * 相比独立任务卡更轻量，适合嵌套在文件夹组内。
+ */
+@Composable
+private fun DownloadSubTaskRow(
+    task: DownloadTaskEntity,
+    stats: DownloadStats?,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onRemove: () -> Unit,
+    onRedownload: () -> Unit,
+    /** 下载调试开启时长按菜单出现「调试信息」 */
+    downloadDebug: Boolean = false,
+    onOpenDebug: (Long) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val isDownloading = task.status == DownloadTaskEntity.STATUS_DOWNLOADING ||
+        task.status == DownloadTaskEntity.STATUS_PENDING
+    // 合并阶段进度（-1 = 不在合并）：合并时下载早就 100% 了，进度条改用合并百分比，
+    // 否则大文件会一直停在 100% 像卡死
+    val mergePercent = stats?.mergePercent ?: -1
+    val merging = mergePercent >= 0
+    val fraction = when {
+        merging -> mergePercent / 100f
+        task.totalSize > 0 -> (task.downloadedSize.toFloat() / task.totalSize).coerceIn(0f, 1f)
+        else -> 0f
+    }
+    // 显示相对路径（去掉顶级目录前缀，如 "A/B/b.mp4" → "B/b.mp4"）
+    val displayName = task.fileName.substringAfter('/')
+    // 长按任务行弹出操作菜单（复制直链 / 重新下载 / 删除）
+    var showMenu by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { showMenu = true }
+            ),
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 文件小图标
+                Surface(
+                    modifier = Modifier.size(32.dp),
+                    shape = RoundedCornerShape(9.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.InsertDriveFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    FileNameText(
+                        text = displayName,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = when {
+                            merging -> stringResource(R.string.dl_merging_percent, mergePercent)
+                            isDownloading && stats != null && stats.speed > 0 ->
+                                stringResource(R.string.dl_status_speed, DownloadTaskEntity.statusText(task.status), formatSpeed(stats.speed))
+                            task.status == DownloadTaskEntity.STATUS_COMPLETED && task.avgSpeed > 0 ->
+                                stringResource(R.string.dl_status_avg_speed, DownloadTaskEntity.statusText(task.status), formatSpeed(task.avgSpeed))
+                            else -> taskStatusLine(task)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (task.status == DownloadTaskEntity.STATUS_FAILED) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
+                // 主操作（暂停/继续/重试/打开）
+                when (task.status) {
+                    DownloadTaskEntity.STATUS_DOWNLOADING,
+                    DownloadTaskEntity.STATUS_PENDING -> IconButton(onClick = onPause, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Outlined.Pause, contentDescription = stringResource(R.string.dl_pause),
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    DownloadTaskEntity.STATUS_PAUSED -> IconButton(onClick = onResume, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.dl_resume),
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    DownloadTaskEntity.STATUS_FAILED -> IconButton(onClick = onResume, modifier = Modifier.size(48.dp)) {
+                        Icon(
+                            Icons.Outlined.Refresh, contentDescription = stringResource(R.string.dl_retry),
+                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    DownloadTaskEntity.STATUS_COMPLETED -> IconButton(
+                        onClick = { openSavedFile(context, task.savePath) },
+                        modifier = Modifier.size(48.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.OpenInNew, contentDescription = stringResource(R.string.dl_open),
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                // 删除
+                IconButton(onClick = onRemove, modifier = Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.Outlined.Delete, contentDescription = stringResource(R.string.dl_delete),
+                        tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            // 细进度条（完成态折叠，带过渡动画）
+            AnimatedVisibility(
+                visible = task.status != DownloadTaskEntity.STATUS_COMPLETED,
+                enter = expandVertically(spatialDefault()) + fadeIn(effectsDefault()),
+                exit = shrinkVertically(spatialFast()) + fadeOut(effectsFast())
+            ) {
+                YunXWavyProgress(
+                    progress = { fraction },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp),
+                    color = if (task.status == DownloadTaskEntity.STATUS_FAILED) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                    waving = task.status == DownloadTaskEntity.STATUS_DOWNLOADING
+                )
+            }
+        }
+
+        // 长按任务行弹出操作菜单（复制直链 / 重新下载 / 删除）
+        if (showMenu) {
+            AlertDialog(
+                onDismissRequest = { showMenu = false },
+                title = {
+                    Text(
+                        text = displayName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                text = {
+                    Column {
+                        TextButton(onClick = {
+                            showMenu = false
+                            copyToClipboard(context, task.url)
+                            SnackbarController.show(AppStrings.get(R.string.dl_url_copied))
+                        }) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_copy_url))
+                        }
+                        TextButton(onClick = {
+                            showMenu = false
+                            onRedownload()
+                        }) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_redownload))
+                        }
+                        TextButton(onClick = {
+                            showMenu = false
+                            onRemove()
+                        }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_delete_task))
+                        }
+                        if (downloadDebug) {
+                            TextButton(onClick = {
+                                showMenu = false
+                                onOpenDebug(task.id)
+                            }) {
+                                Icon(Icons.Outlined.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.dl_debug_info))
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showMenu = false }) { Text(stringResource(R.string.action_cancel)) }
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadTaskCard(
+    task: DownloadTaskEntity,
+    stats: DownloadStats?,
+    onPause: () -> Unit,
+    onResume: () -> Unit,
+    onRemove: () -> Unit,
+    onRedownload: () -> Unit,
+    /** 下载调试开启时长按菜单出现「调试信息」 */
+    downloadDebug: Boolean = false,
+    onOpenDebug: (Long) -> Unit = {}
+) {
+    val context = LocalContext.current
+    val isDownloading = task.status == DownloadTaskEntity.STATUS_DOWNLOADING ||
+        task.status == DownloadTaskEntity.STATUS_PENDING
+    // 合并阶段进度（-1 = 不在合并）：合并时下载早就 100% 了，界面改显示合并百分比
+    val mergePercent = stats?.mergePercent ?: -1
+    val merging = mergePercent >= 0
+    val fraction = when {
+        merging -> mergePercent / 100f
+        task.totalSize > 0 -> (task.downloadedSize.toFloat() / task.totalSize).coerceIn(0f, 1f)
+        else -> 0f
+    }
+    // 长按任务卡弹出操作菜单（复制直链 / 重新下载 / 删除）
+    var showMenu by remember { mutableStateOf(false) }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .combinedClickable(
+                onClick = {},
+                onLongClick = { showMenu = true }
+            ),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.InsertDriveFile,
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    FileNameText(
+                        text = task.fileName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (merging) stringResource(R.string.dl_merging_percent, mergePercent) else taskStatusLine(task),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                // 主操作按钮
+                when (task.status) {
+                    DownloadTaskEntity.STATUS_DOWNLOADING,
+                    DownloadTaskEntity.STATUS_PENDING -> IconButton(onClick = onPause) {
+                        Icon(Icons.Outlined.Pause, contentDescription = stringResource(R.string.dl_pause), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    DownloadTaskEntity.STATUS_PAUSED -> IconButton(onClick = onResume) {
+                        Icon(Icons.Outlined.PlayArrow, contentDescription = stringResource(R.string.dl_resume), tint = MaterialTheme.colorScheme.primary)
+                    }
+                    DownloadTaskEntity.STATUS_FAILED -> IconButton(onClick = onResume) {
+                        Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.dl_retry), tint = MaterialTheme.colorScheme.error)
+                    }
+                                        DownloadTaskEntity.STATUS_COMPLETED -> Row {
+                        // APK 文件：额外显示「安装」按钮
+                        if (task.fileName.endsWith(".apk", true)) {
+                            IconButton(onClick = { installApk(context, task.savePath, task.fileName) }) {
+                                Icon(
+                                    imageVector = Icons.Outlined.SystemUpdate,
+                                    contentDescription = stringResource(R.string.dl_install),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                        IconButton(onClick = {
+                            openSavedFile(context, task.savePath)
+                        }) {
+                            Icon(Icons.Outlined.OpenInNew, contentDescription = stringResource(R.string.dl_open), tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 失败原因（红色小字展示具体错误）
+            if (task.status == DownloadTaskEntity.STATUS_FAILED && task.errorMsg.isNotBlank()) {
+                Text(
+                    text = stringResource(R.string.dl_fail_reason, task.errorMsg),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            // 实时统计 + 进度条：完成态整体折叠（带高度过渡动画，不残留空白）
+            AnimatedVisibility(
+                visible = task.status != DownloadTaskEntity.STATUS_COMPLETED,
+                enter = expandVertically(spatialDefault()) + fadeIn(effectsDefault()),
+                exit = shrinkVertically(spatialFast()) + fadeOut(effectsFast())
+            ) {
+                Column {
+                    // 速度/线程行：随下载状态淡入淡出 + 高度过渡。
+                    // 原来用 if 直接增删这一行，暂停/开始时它"啪"地消失/出现，与上下元素位移很突兀。
+                    //
+                    // ★ 文本必须在这里（composable 作用域）算好，不能写进 AnimatedVisibility 的 content：
+                    //   content 是独立 lambda，里面享受不到 stats 的智能转换（编译报 nullable receiver）；
+                    //   而用 !! 会在"退出动画期间 visible 已为 false、stats 已变 null"时崩溃。
+                    //   退出动画期间沿用上一帧文本（lastStatsText），避免文字先消失再收高度。
+                    val liveStatsText = stats
+                        ?.takeIf { isDownloading && it.speed > 0 }
+                        ?.let { stringResource(R.string.dl_live_stats, formatSpeed(it.speed), formatRemain(it.remainMillis), it.chunkCount) }
+                    var lastStatsText by remember { mutableStateOf("") }
+                    LaunchedEffect(liveStatsText) {
+                        if (!liveStatsText.isNullOrEmpty()) lastStatsText = liveStatsText
+                    }
+                    AnimatedVisibility(
+                        visible = liveStatsText != null,
+                        enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                            expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec()),
+                        exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()) +
+                            shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec())
+                    ) {
+                        Column {
+                            Text(
+                                text = lastStatsText,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+                    YunXWavyProgress(
+                        progress = { fraction },
+                        modifier = Modifier.fillMaxWidth(),
+                        color = when (task.status) {
+                            DownloadTaskEntity.STATUS_FAILED -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.primary
+                        },
+                        trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+                        waving = task.status == DownloadTaskEntity.STATUS_DOWNLOADING
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (task.status == DownloadTaskEntity.STATUS_COMPLETED) {
+                        if (task.avgSpeed > 0) {
+                            stringResource(R.string.dl_avg_speed_size, formatSpeed(task.avgSpeed), formatSize(task.totalSize))
+                        } else {
+                            formatSize(task.totalSize)
+                        }
+                    } else if (merging) {
+                        // 合并阶段：底部不要再显示"已下载 100%"，明确告知正在合并
+                        stringResource(R.string.dl_merging_size, mergePercent, formatSize(task.totalSize))
+                    } else {
+                        progressText(task)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                )
+                TextButton(onClick = onRemove) {
+                    Icon(
+                        imageVector = Icons.Outlined.Delete,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(stringResource(R.string.dl_delete), color = MaterialTheme.colorScheme.error)
+                }
+            }
+        }
+
+        // 长按任务卡弹出操作菜单（复制直链 / 重新下载 / 删除）
+        if (showMenu) {
+            AlertDialog(
+                onDismissRequest = { showMenu = false },
+                title = {
+                    Text(
+                        text = task.fileName,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
+                text = {
+                    Column {
+                        TextButton(onClick = {
+                            showMenu = false
+                            copyToClipboard(context, task.url)
+                            SnackbarController.show(AppStrings.get(R.string.dl_url_copied))
+                        }) {
+                            Icon(Icons.Outlined.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_copy_url))
+                        }
+                        TextButton(onClick = {
+                            showMenu = false
+                            onRedownload()
+                        }) {
+                            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_redownload))
+                        }
+                        TextButton(onClick = {
+                            showMenu = false
+                            onRemove()
+                        }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.dl_delete_task))
+                        }
+                        if (downloadDebug) {
+                            TextButton(onClick = {
+                                showMenu = false
+                                onOpenDebug(task.id)
+                            }) {
+                                Icon(Icons.Outlined.BugReport, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(stringResource(R.string.dl_debug_info))
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showMenu = false }) { Text(stringResource(R.string.action_cancel)) }
+                }
+            )
+        }
+    }
+}
+
+private fun copyToClipboard(context: Context, text: String) {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    cm.setPrimaryClip(ClipData.newPlainText("yunx_url", text))
+}
+
+internal fun taskStatusLine(task: DownloadTaskEntity): String {
+    // 磁力任务在引擎拿到元数据之前 totalSize 一直是 0：这时按进度显示会变成「下载中」却没有任何数字，
+    // 看起来像卡死。BT 的元数据要等 DHT/tracker 找到 peer，慢起来是分钟级，明说在解析更诚实。
+    if (task.status == DownloadTaskEntity.STATUS_DOWNLOADING &&
+        task.totalSize <= 0 &&
+        MagnetLink.isMagnet(task.url)
+    ) {
+        return AppStrings.get(R.string.dl_resolving_magnet)
+    }
+    val status = DownloadTaskEntity.statusText(task.status)
+    return if (task.totalSize > 0) {
+        // 显示值钳制到 total（防恢复竞态残留导致显示超总大小）
+        val shown = minOf(task.downloadedSize, task.totalSize)
+        AppStrings.get(R.string.dl_status_with_size, status, formatSize(shown), formatSize(task.totalSize))
+    } else {
+        status
+    }
+}
+
+internal fun progressText(task: DownloadTaskEntity): String {
+    if (task.totalSize <= 0) return ""
+    // 显示值钳制到 total（防恢复竞态残留导致显示超总大小）
+    val shown = minOf(task.downloadedSize, task.totalSize)
+    val percent = (shown * 100 / task.totalSize).toInt().coerceIn(0, 100)
+    return AppStrings.get(
+        R.string.dl_progress_text,
+        formatSize(shown),
+        formatSize(task.totalSize),
+        percent
+    )
+}
+
+internal fun formatSize(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val units = arrayOf("B", "KB", "MB", "GB", "TB")
+    var value = bytes.toDouble()
+    var i = 0
+    while (value >= 1024 && i < units.size - 1) {
+        value /= 1024
+        i++
+    }
+    return String.format("%.1f %s", value, units[i])
+}
+
+internal fun formatSpeed(bytesPerSec: Long): String {
+    if (bytesPerSec <= 0) return "0 B/s"
+    val units = arrayOf("B/s", "KB/s", "MB/s", "GB/s")
+    var value = bytesPerSec.toDouble()
+    var i = 0
+    while (value >= 1024 && i < units.size - 1) {
+        value /= 1024
+        i++
+    }
+    return String.format("%.1f %s", value, units[i])
+}
+
+internal fun formatRemain(millis: Long): String {
+    if (millis < 0) return AppStrings.get(R.string.dl_calculating)
+    val sec = millis / 1000
+    return when {
+        sec < 60 -> AppStrings.get(R.string.dl_dur_seconds, sec)
+        sec < 3600 -> AppStrings.get(R.string.dl_dur_min_sec, sec / 60, sec % 60)
+        else -> AppStrings.get(R.string.dl_dur_hour_min, sec / 3600, (sec % 3600) / 60)
+    }
+}
+
+private fun openSavedFile(context: android.content.Context, savePath: String) {
+    if (savePath.isBlank()) return
+    val uri = if (savePath.startsWith("content://")) {
+        Uri.parse(savePath)
+    } else {
+        // Android 7.0+ 禁止暴露 file:// URI，必须经 FileProvider 转 content://
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(savePath))
+    }
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "*/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, AppStrings.get(R.string.dl_chooser_open_file)))
+    }.onFailure {
+        SnackbarController.show(AppStrings.get(R.string.dl_snack_cannot_open_file))
+    }
+}
+
+/** 安装 APK：检查「安装未知来源应用」权限（Android 8+），ACTION_VIEW 调起系统安装器 */
+private fun installApk(context: android.content.Context, savePath: String, fileName: String) {
+    if (savePath.isBlank()) {
+        SnackbarController.show(AppStrings.get(R.string.dl_snack_file_not_exist))
+        return
+    }
+    // Android 8+：需先授予「安装未知来源应用」
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+        !context.packageManager.canRequestPackageInstalls()
+    ) {
+        SnackbarController.show(AppStrings.get(R.string.dl_snack_allow_unknown_sources))
+        val intent = Intent(
+            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+            Uri.parse("package:${context.packageName}")
+        )
+        runCatching { context.startActivity(intent) }.onFailure {
+            SnackbarController.show(AppStrings.get(R.string.dl_snack_cannot_open_settings))
+        }
+        return
+    }
+    val uri = if (savePath.startsWith("content://")) {
+        Uri.parse(savePath)
+    } else {
+        // Android 7.0+ 禁止暴露 file:// URI，必须经 FileProvider 转 content://
+        FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", File(savePath))
+    }
+    val intent = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "application/vnd.android.package-archive")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching {
+        context.startActivity(Intent.createChooser(intent, AppStrings.get(R.string.dl_chooser_install_app)))
+    }.onFailure {
+        SnackbarController.show(AppStrings.get(R.string.dl_snack_cannot_open_installer))
+    }
+}
+
+@Composable
+private fun AddDownloadDialog(
+    /** 深链接预填的直链 / 磁力（空 = 用户自己输入） */
+    initialUrl: String = "",
+    onDismiss: () -> Unit,
+    onConfirm: (url: String, name: String) -> Unit
+) {
+    var url by remember { mutableStateOf(initialUrl) }
+    // 预填时把落盘名一起算好（与下面 onValueChange 同一套规则：磁力取 dn=，其余取路径末段）
+    var name by remember {
+        mutableStateOf(
+            when {
+                initialUrl.isBlank() -> ""
+                MagnetLink.isMagnet(initialUrl) -> MagnetLink.displayName(initialUrl)
+                else -> initialUrl.substringAfterLast('/').take(80)
+            }
+        )
+    }
+    val isMagnet = MagnetLink.isMagnet(url)
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.dl_add_task)) },
+        text = {
+            // 横屏/小屏时内容超高可滚动，避免按钮被挤出屏幕
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.dl_save_to_dir, Environment.DIRECTORY_DOWNLOADS),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = {
+                        url = it
+                        // 磁力链接的落盘名字由种子决定（引擎解析出元数据才知道），这里先拿 dn= 里的显示名占位
+                        if (name.isBlank()) {
+                            name = if (MagnetLink.isMagnet(it)) {
+                                MagnetLink.displayName(it)
+                            } else {
+                                it.substringAfterLast('/').take(80)
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(stringResource(R.string.dl_url_placeholder)) },
+                    singleLine = true
+                )
+                if (isMagnet) {
+                    // 磁力只有 Gopeed 内核能下（内置分片下载器是纯 HTTP 实现），提前说清楚省得白等
+                    Text(
+                        text = stringResource(R.string.dl_magnet_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(if (isMagnet) stringResource(R.string.dl_name_placeholder_magnet) else stringResource(R.string.dl_name_placeholder)) },
+                    singleLine = true
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(url.trim(), name.trim()) },
+                // 磁力允许留空文件名：真正的名字要等引擎拿到元数据（DownloadManager 会自己兜底）
+                enabled = url.isNotBlank() && (name.isNotBlank() || isMagnet)
+            ) { Text(stringResource(R.string.dl_start_download)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        }
+    )
+}

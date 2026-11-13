@@ -282,7 +282,13 @@ compose.desktop {
     application {
         mainClass = "com.yunx.app.MainKt"
         nativeDistributions {
-            targetFormats(if (hostIsWindows) TargetFormat.Exe else TargetFormat.Deb)
+            targetFormats(
+                when {
+                    hostIsWindows -> TargetFormat.Exe
+                    hostIsMac -> TargetFormat.Dmg
+                    else -> TargetFormat.Deb
+                }
+            )
             // sqlite-jdbc 通过反射加载 java.sql.Driver，jlink 自动检测不到，必须显式声明；
             // jdk.httpserver 是视频预览的本地回环代理（com.sun.net.httpserver），
             // jdk.unsupported.desktop 是 JavaFX 与 Swing 互操作（JFXPanel 里的 jdk.swing.interop）——
@@ -298,6 +304,11 @@ compose.desktop {
                 debMaintainer = "YunX-Allsystem <https://github.com/gopk-core/YunX-Allsystem>"
                 menuGroup = "Network"
                 appCategory = "Network"
+            }
+            macOS {
+                packageName = "YunX-Allsystem"
+                bundleID = "com.yunx.allsystem"
+                dockName = "YunX"
             }
             packageName = "YunX-Desktop"
             packageVersion = appVersion

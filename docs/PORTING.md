@@ -41,6 +41,8 @@ Windows 脚本（`run.ps1`、`portable-package.ps1`、`installer/`、C# 启动�
 
 新版本请自行从 [gopk-core/YunX-Allsystem](https://github.com/gopk-core/YunX-Allsystem) 获取源码后重新构建。
 
+安卓、macOS、iOS 见 [ANDROID.md](ANDROID.md)、[MACOS.md](MACOS.md)、[IOS.md](IOS.md)。
+
 ## 暂缓（没有静默删掉，只是这一轮不做）
 
 - **Win32 暗色标题栏 / `darkmode.dll`**：只服务 Windows 菜单和 DWM。Linux 跟随桌面主题，不再移植这份 C++。
