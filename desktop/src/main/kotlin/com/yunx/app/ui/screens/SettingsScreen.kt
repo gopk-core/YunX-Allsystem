@@ -36,7 +36,6 @@ import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material.icons.outlined.SwapHoriz
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material.icons.outlined.VolunteerActivism
 import androidx.compose.foundation.text.KeyboardOptions
@@ -73,7 +72,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.yunx.app.AppContext
 import com.yunx.app.data.backup.AuthBackupManager
 import com.yunx.app.data.backup.AuthCrypto
 import com.yunx.app.data.download.DownloadDebugLog
@@ -83,7 +81,6 @@ import com.yunx.app.data.network.GitHubMirror
 import com.yunx.app.data.network.HttpClients
 import com.yunx.app.data.network.SystemProxy
 import com.yunx.app.data.prefs.SettingsRepository
-import com.yunx.app.data.update.UpdateChecker
 import com.yunx.app.ui.SnackbarController
 import com.yunx.app.ui.components.FadeAlertDialog
 import com.yunx.app.ui.theme.ThemeController
@@ -148,7 +145,8 @@ private val threadPlatformSections = listOf(
 )
 
 /**
- * 设置页：下载线程数设置 + 主题外观 + 检查更新 + 日志与网盘认证。
+ * 设置页：下载线程数设置 + 主题外观 + 日志与网盘认证。
+ * 本移植不提供应用内检查更新。
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -164,14 +162,10 @@ fun SettingsScreen(
     /** 打开「储存目录」二级页（下载保存目录 / 下载缓存 / 数据库位置） */
     onStorageClick: () -> Unit,
     backupManager: AuthBackupManager,
-    /** 用应用内置下载器下载更新包；fallbackUrl 非空时作为镜像下载失败后的直连回退（URL + 文件名 + 回退直连） */
-    onDownloadUpdateApk: (url: String, fileName: String, fallbackUrl: String?) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var showThreadsDialog by remember { mutableStateOf(false) }
     var showLogDialog by remember { mutableStateOf(false) }
-    // 检查更新结果（非空时弹更新对话框）
-    var updateRelease by remember { mutableStateOf<UpdateChecker.Release?>(null) }
     // 网盘认证导出弹窗（AES 加密 + 导出范围）
     var showExportAuthDialog by remember { mutableStateOf(false) }
     // 网盘认证导入：加密文件内容（非空时弹解密密码框）
@@ -209,8 +203,6 @@ fun SettingsScreen(
     // GitHub 下载镜像前缀：null/空 = 自动（由 GitHubMirror 实测选最快）；非空 = 手动固定
     var githubMirror by remember { mutableStateOf(settingsRepo.githubMirrorPrefix) }
     var showMirrorDialog by remember { mutableStateOf(false) }
-    // 接受预发布版更新：检查更新时包含 GitHub Pre-release（默认关闭）
-    var acceptPrerelease by remember { mutableStateOf(settingsRepo.acceptPrereleaseUpdate) }
     // 网络代理：三选一模式（直连 / 系统代理 / 手动配置），本地状态驱动副标题，弹窗内使用临时变量编辑
     var proxyMode by remember { mutableStateOf(settingsRepo.proxyMode) }
     var proxyHost by remember { mutableStateOf(settingsRepo.proxyHost) }
@@ -367,45 +359,6 @@ fun SettingsScreen(
         Spacer(modifier = Modifier.height(24.dp))
 
         SectionLabel("通用")
-        SettingsItem(
-            icon = Icons.Outlined.SystemUpdate,
-            title = "检查更新",
-            description = "检查 GitHub 是否有新版本可用",
-            onClick = {
-                scope.launch {
-                    SnackbarController.show("正在检查更新…")
-                    val release = runCatching { UpdateChecker.fetchLatestRelease(acceptPrerelease) }.getOrNull()
-                    val current = UpdateChecker.currentVersion()
-                    if (release == null) {
-                        SnackbarController.show("检查更新失败，请检查网络")
-                    } else if (UpdateChecker.compareVersions(release.tagName, current) > 0) {
-                        updateRelease = release
-                    } else {
-                        SnackbarController.show("已是最新版本")
-                    }
-                }
-            }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // 接受预发布版更新：开启后检查更新包含 GitHub Pre-release，切换后下次检查才生效
-        SettingsItem(
-            icon = Icons.Outlined.SystemUpdate,
-            title = "接受预发布版更新",
-            description = if (acceptPrerelease) {
-                "检查更新时包含 GitHub Pre-release（可能不稳定）"
-            } else {
-                "只接收正式版更新"
-            },
-            onClick = {
-                acceptPrerelease = !acceptPrerelease
-                settingsRepo.acceptPrereleaseUpdate = acceptPrerelease
-            },
-            trailing = { Switch(checked = acceptPrerelease, onCheckedChange = null) }
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
 
         // GitHub 下载镜像：自动（实测选最快）/ 内置预选 / 自定义前缀
         SettingsItem(
@@ -626,25 +579,6 @@ fun SettingsScreen(
         title = { Text("开发调试") },
         text = {
             Column {
-                Button(
-                    onClick = {
-                        showDevMenu = false
-                        // 调试用途：直接弹出更新弹窗（不判断是否已是最新版），预览弹窗 UI
-                        scope.launch {
-                            val release = runCatching { UpdateChecker.fetchLatestRelease(acceptPrerelease) }.getOrNull()
-                            updateRelease = release ?: UpdateChecker.Release(
-                                tagName = "v1.2.4（预览）",
-                                body = "这是调试预览弹窗，用于查看更新弹窗 UI（含镜像站下载按钮）。",
-                                assets = emptyList(),
-                                publishedAt = ""
-                            )
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("显示检查更新弹窗") }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
                 // 诊断模式：开启后 db / crypto / download / network / operation 等模块的详细日志
                 // 写进数据目录 diagnostic_logs（按模块分文件），关闭时一行都不写。
                 Row(
@@ -795,34 +729,6 @@ fun SettingsScreen(
             TextButton(onClick = { showDisableDownloadDebugConfirm = false }) { Text("取消") }
         }
     )
-
-    // 检查更新结果弹窗（发现新版本时展示，下载走应用内置下载器）
-    updateRelease?.let { release ->
-        UpdateDialog(
-            currentVersion = UpdateChecker.currentVersion(),
-            release = release,
-            onDownloadAsset = { url, name ->
-                updateRelease = null
-                onDownloadUpdateApk(url, name, null)
-                SnackbarController.show("已加入下载 $name")
-            },
-            // 镜像站下载：用当前生效的镜像前缀（自动选最快 / 用户固定），并把 GitHub 直连 URL
-            // 作为 fallbackUrl —— 镜像站失效/失败时自动回退直连（与 GitHub 浏览下载行为一致）
-            onDownloadMirrorAsset = { url, name ->
-                updateRelease = null
-                val prefix = GitHubMirror.activePrefix()
-                onDownloadUpdateApk(UpdateChecker.mirrorUrl(url, prefix), name, url)
-                SnackbarController.show("已通过镜像站加入下载 $name")
-            },
-            onLater = { updateRelease = null },
-            onIgnore = {
-                // 「不再提示该版本」：按 tag 记住，之后启动检查也会跳过它（将来有更新的版本仍会提示）
-                AppContext.miscPrefs.put("ignored_version", release.tagName)
-                updateRelease = null
-            },
-            mandatory = release.isMandatoryFor(UpdateChecker.currentVersion())
-        )
-    }
 
     // 线程数选择弹窗（按平台；右上角可在一列 / 两列之间切换）
     if (showThreadsDialog) {

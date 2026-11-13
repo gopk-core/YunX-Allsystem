@@ -116,13 +116,6 @@ class SettingsRepository {
             prefs.putBoolean("clipboard_link_detection", value)
         }
 
-    /** 接受预发布版更新：检查更新时把 GitHub Pre-release 也算作新版本（默认关闭） */
-    var acceptPrereleaseUpdate: Boolean
-        get() = prefs.getBoolean("accept_prerelease_update", false)
-        set(value) {
-            prefs.putBoolean("accept_prerelease_update", value)
-        }
-
     /**
      * 诊断模式（设置 → 关于云析 → 长按 → 开发调试）：默认关，开启后把 db / crypto / download /
      * webview / network / operation 六个模块的详细日志写进数据目录（见 `DiagnosticLog`）。

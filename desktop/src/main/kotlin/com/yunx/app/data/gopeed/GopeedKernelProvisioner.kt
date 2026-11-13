@@ -2,7 +2,6 @@ package com.yunx.app.data.gopeed
 
 import com.yunx.app.data.network.GitHubMirror
 import com.yunx.app.data.network.HttpClients
-import com.yunx.app.data.update.UpdateChecker
 import com.yunx.app.util.Log
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +27,7 @@ import kotlin.coroutines.coroutineContext
  * 系统按 `os.name` 映射（windows / linux / macos），架构按 `os.arch` 映射（amd64 / arm64）。
  *
  * 下载走项目既有的 [HttpClients.downloadClient]（跟随代理设置）；镜像前缀沿用「GitHub 下载镜像」
- * 设置（未配置时用 [UpdateChecker.MIRROR_PREFIX]），镜像失败自动回退直连。
+ * 设置（未配置时用 [GitHubMirror.activePrefix]），镜像失败自动回退直连。
  */
 object GopeedKernelProvisioner {
 
@@ -119,7 +118,7 @@ object GopeedKernelProvisioner {
         Plan(
             version = tag,
             assetName = wanted,
-            url = UpdateChecker.mirrorUrl(direct, mirror),
+            url = GitHubMirror.mirrorUrl(direct, mirror),
             fallbackUrl = direct,
             size = asset.optLong("size"),
             digest = asset.optString("digest")

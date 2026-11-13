@@ -92,7 +92,6 @@ import com.yunx.app.data.network.video.VideoMedia
 import com.yunx.app.data.network.video.VideoParseResult
 import com.yunx.app.data.network.video.VideoPlatform
 import com.yunx.app.data.download.VideoDownloads
-import com.yunx.app.data.update.UpdateChecker
 import com.yunx.app.data.db.DownloadTaskEntity
 import com.yunx.app.data.prefs.SettingsRepository
 import com.yunx.app.ui.components.CloseChoice
@@ -161,7 +160,6 @@ import com.yunx.app.ui.screens.VideoStreamMode
 import com.yunx.app.ui.screens.SettingsScreen
 import com.yunx.app.ui.screens.SupportScreen
 import com.yunx.app.ui.screens.ThemeScreen
-import com.yunx.app.ui.screens.UpdateDialog
 import com.yunx.app.ui.viewmodel.AnnouncementViewModel
 import com.yunx.app.ui.viewmodel.BaiduAccountViewModel
 import com.yunx.app.ui.viewmodel.BaiduCloudViewModel
@@ -243,8 +241,6 @@ fun MainScreen(
     var showAnnouncements by rememberSaveable { mutableStateOf(false) }
     /** 启动公告弹窗点「查看详情」时带进去的公告 id（null = 从图标进来先看列表） */
     var announcementDetailId by rememberSaveable { mutableStateOf<String?>(null) }
-    /** 启动自动检查更新：发现新版本且未被用户忽略时非空 → 弹更新弹窗（见下方启动检查） */
-    var startupUpdateRelease by remember { mutableStateOf<UpdateChecker.Release?>(null) }
     val saveableStateHolder = rememberSaveableStateHolder()
 
     val scope = rememberCoroutineScope()
@@ -842,7 +838,7 @@ fun MainScreen(
      *
      * 启动检查（[AnnouncementViewModel.checkStartup]）整个会话只跑一次：一次列表请求同时决定
      * 「角标数字」与「弹窗展示哪一条」—— 有未读的置顶公告就弹它，否则弹最新的一条未读，全读完则不弹。
-     * 失败静默（与更新检查同一口径），用户点进公告页时会再拉一次并把错误显示出来。
+     * 失败静默，用户点进公告页时会再拉一次并把错误显示出来。
      */
     val announcementReadStore = remember { AnnouncementReadStore() }
     val announcementViewModel: AnnouncementViewModel = viewModel(
@@ -856,30 +852,8 @@ fun MainScreen(
     LaunchedEffect(Unit) { GopeedEngine.syncInstalledState() }
 
     // 启动时按需刷新 GitHub 镜像测速（结果过期或从未测过才跑，避免每次启动都测速）
+    // 镜像只服务 GitHub 文件下载 / 引擎包，不检查、也不安装本应用的新版本。
     LaunchedEffect(Unit) { GitHubMirror.ensureFresh() }
-
-    /**
-     * 启动自动检查更新（整个会话只跑一次）。
-     * 静默口径：网络失败 / 已是最新 / 用户点过「不再提示该版本」的版本 都不打扰；
-     * 只有确实有更新的版本才把 [startupUpdateRelease] 置上，由根部的更新弹窗展示。
-     * 「不再提示该版本」写入的 `ignored_version`（按 tag 记住）与设置页手动检查时是同一个键，
-     * 只跳过这一个版本，将来发布更新的版本仍会提示。
-     */
-    LaunchedEffect(Unit) {
-        val release = runCatching {
-            UpdateChecker.fetchLatestRelease(settings.acceptPrereleaseUpdate)
-        }.getOrNull() ?: return@LaunchedEffect
-        val current = UpdateChecker.currentVersion()
-        if (UpdateChecker.compareVersions(release.tagName, current) <= 0) {
-            return@LaunchedEffect
-        }
-        // 强制更新不受「不再提示该版本」影响（用户之前忽略过也要拦）
-        val mandatory = release.isMandatoryFor(current)
-        if (!mandatory && AppContext.miscPrefs.get("ignored_version", null) == release.tagName) {
-            return@LaunchedEffect
-        }
-        startupUpdateRelease = release
-    }
 
     // 主框架与全屏覆盖层（关于页等）放在同一 Box：覆盖层带过渡动画
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1079,18 +1053,7 @@ fun MainScreen(
                             onExperimentalClick = { showExperimental = true },
                             onDownloadEngineClick = { showDownloadEngine = true },
                             onStorageClick = { showStorage = true },
-                            backupManager = backupManager,
-                            onDownloadUpdateApk = { url, name, fallbackUrl ->
-                                scope.launch {
-                                    // 镜像下载传入直连作为回退：镜像主 URL 探测失败时整任务切到原始直连
-                                    downloadManager.enqueue(
-                                        url = url,
-                                        fileName = name,
-                                        fallbackUrl = fallbackUrl ?: ""
-                                    )
-                                    currentTab = MainTab.Download
-                                }
-                            }
+                            backupManager = backupManager
                         )
                     }
                 }
@@ -1565,45 +1528,6 @@ fun MainScreen(
                 },
                 onDismiss = { announcementViewModel.consumePopup() }
             )
-        }
-
-        // 启动更新弹窗：与公告弹窗互斥（公告优先），避免两个覆盖层叠在一起看不清
-        if (popupAnnouncement == null) {
-            startupUpdateRelease?.let { release ->
-                UpdateDialog(
-                    currentVersion = UpdateChecker.currentVersion(),
-                    release = release,
-                    // 下载走应用内置下载器（与设置页手动检查更新同一条路径），完成后切到下载页看进度
-                    onDownloadAsset = { url, name ->
-                        startupUpdateRelease = null
-                        scope.launch {
-                            downloadManager.enqueue(url = url, fileName = name)
-                            currentTab = MainTab.Download
-                        }
-                    },
-                    // 镜像站下载：用当前生效的镜像前缀（自动选最快 / 用户固定），GitHub 直连作为失败回退
-                    onDownloadMirrorAsset = { url, name ->
-                        startupUpdateRelease = null
-                        val prefix = GitHubMirror.activePrefix()
-                        scope.launch {
-                            downloadManager.enqueue(
-                                url = UpdateChecker.mirrorUrl(url, prefix),
-                                fileName = name,
-                                fallbackUrl = url
-                            )
-                            currentTab = MainTab.Download
-                        }
-                    },
-                    onLater = { startupUpdateRelease = null },
-                    onIgnore = {
-                        // 与设置页「不再提示该版本」同一个键：按 tag 记住，之后不再为这个版本弹窗
-                        // （将来有更新的版本仍会提示，不是全局关闭更新检查）
-                        AppContext.miscPrefs.put("ignored_version", release.tagName)
-                        startupUpdateRelease = null
-                    },
-                    mandatory = release.isMandatoryFor(UpdateChecker.currentVersion())
-                )
-            }
         }
 
         // 剪贴板分享链接检测器：主窗口失焦时若剪贴板有分享链接，触发右下角弹窗。

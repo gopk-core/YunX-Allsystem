@@ -1,8 +1,8 @@
 # 移植说明与暂缓项
 
 上游：[tidain/YunX-Desktop](https://github.com/tidain/YunX-Desktop) `main`，
-导入时的提交是 `3700c1c607eea9517f022318d85cb543f05a85dc`
-（2026-11-04，版本 1.3.3）。安卓版是 [CYQawa/YunX](https://github.com/CYQawa/YunX)。
+当前对齐的提交是 `00a030f778a6`（2026-11-13，版本 1.3.4）。
+安卓版是 [CYQawa/YunX](https://github.com/CYQawa/YunX)。
 
 本仓库保留上游历史（`upstream/main` 以无共同祖先的方式合并进来），并在其上改 Linux 路径。
 Windows 脚本（`run.ps1`、`portable-package.ps1`、`installer/`、C# 启动器）还在，
@@ -23,6 +23,23 @@ Windows 脚本（`run.ps1`、`portable-package.ps1`、`installer/`、C# 启动�
 - Firefox Cookie 可以导入。Chromium Cookie 在密钥环解锁且 `secret-tool` 可用时尝试解密 v10。
 - 内嵌浏览器使用 JCEF 的 Linux amd64 原生库。默认加 `--no-sandbox`，因为解包出来的 `chrome-sandbox` 没有 setuid。需要沙箱时启动前设置 `YUNX_CEF_SANDBOX=1`。
 - 关机：`systemctl poweroff`，失败再试 `shutdown -h`。是否真的关得掉取决于 polkit。
+
+## 有意去掉：应用内更新
+
+这个移植**不检查、不下载、也不安装自己的新版本**。
+
+已经删掉的部分：
+
+- 启动时对 `tidain/YunX-Desktop` GitHub Release 的自动检查（`MainScreen` 里的 `LaunchedEffect`）
+- 设置页「检查更新」和「接受预发布版更新」
+- 更新弹窗（`UpdateDialog`），包括「下载并安装」「镜像下载」「不再提示该版本」「强制更新」
+- 开发调试菜单里的「显示检查更新弹窗」
+- `UpdateChecker.fetchLatestRelease` 以及版本比较、强制更新解析
+- 设置项 `accept_prerelease_update`
+
+关于页仍显示 `version.txt` 生成的版本号。GitHub 镜像测速还在，它只给仓库文件、Gopeed 内核和 FFmpeg 包加速，不会拉取本应用的安装包。
+
+新版本请自行从 [gopk-core/YunX-Allsystem](https://github.com/gopk-core/YunX-Allsystem) 获取源码后重新构建。
 
 ## 暂缓（没有静默删掉，只是这一轮不做）
 

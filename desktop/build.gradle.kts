@@ -116,7 +116,7 @@ val appIsPreview = versionLines.drop(1).firstOrNull()?.let { line ->
     }
 } ?: false
 
-// 生成 Kotlin 常量供 UpdateChecker 使用，避免应用内再维护一份硬编码
+// 生成 Kotlin 常量供关于页显示版本，避免应用内再维护一份硬编码
 val generateAppVersion by tasks.registering {
     val outDir = layout.buildDirectory.dir("generated/appVersion/kotlin")
     val version = appVersion

@@ -4,7 +4,9 @@
 
 The first target is **Debian GNU/Linux 13 (trixie) amd64**. The license stays **[GNU AGPL-3.0](LICENSE)** — it is not MIT. If you use this code, you must publish your changes under AGPL-3.0 as well.
 
-Attribution: the Windows client is [tidain/YunX-Desktop](https://github.com/tidain/YunX-Desktop) (imported from `main` at `3700c1c`, release line v1.3.3). The Android app in the same project is [CYQawa/YunX](https://github.com/CYQawa/YunX). See [NOTICE](NOTICE) and [UPSTREAM.md](UPSTREAM.md).
+Attribution: the Windows client is [tidain/YunX-Desktop](https://github.com/tidain/YunX-Desktop) (imported from `main` at `00a030f`, release line v1.3.4). The Android app in the same project is [CYQawa/YunX](https://github.com/CYQawa/YunX). See [NOTICE](NOTICE) and [UPSTREAM.md](UPSTREAM.md).
+
+This port does **not** include the upstream in-app updater. It does not check for, download, or install a newer version of itself. Get updates from this repository and rebuild.
 
 这是 [tidain/YunX-Desktop](https://github.com/tidain/YunX-Desktop) 的**非官方多系统移植**（仓库名保持 YunX-Allsystem），从 Debian/Linux 开始。它不是官方 Windows 发行版。协议仍然是 GNU AGPL-3.0。
 
@@ -37,7 +39,7 @@ Windows 10/11 上的官方构建方式没有删掉，仍是 `.\run.ps1`，说明
 
 数据在 Linux 上按 XDG 放：`~/.local/share/yunx-desktop`、`~/.cache/yunx-desktop`、`~/.config/yunx-desktop`。
 
-还没做到和 Windows 完全一样的地方（托盘进度条、ffplay 嵌进窗口、DPAPI 互操作等）列在 **[docs/PORTING.md](docs/PORTING.md)**，没有直接删掉。
+还没做到和 Windows 完全一样的地方（托盘进度条、ffplay 嵌进窗口、DPAPI 互操作等）列在 **[docs/PORTING.md](docs/PORTING.md)**。应用内更新系统是有意去掉的，不是漏移植：启动时不会检查新版本，设置里也没有「检查更新」。
 
 ## 文档
 

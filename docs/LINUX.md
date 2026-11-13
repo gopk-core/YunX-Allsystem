@@ -73,7 +73,7 @@ tar -C "$HOME" -xzf release/YunX-Allsystem-*-linux-amd64.tar.gz
 "$HOME/YunX-Allsystem/yunx-desktop"
 ```
 
-安装 deb（文件名里的版本号以 `version.txt` 为准，当前是 1.3.3）：
+安装 deb（文件名里的版本号以 `version.txt` 为准，当前是 1.3.4）：
 
 ```bash
 sudo apt install -y ./release/yunx-allsystem_*_amd64.deb

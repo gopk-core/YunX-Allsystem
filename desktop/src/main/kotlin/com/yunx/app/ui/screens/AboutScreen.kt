@@ -56,7 +56,7 @@ import androidx.compose.ui.unit.sp
 import com.yunx.app.APP_IS_PREVIEW
 import com.yunx.app.ui.BackHandler
 import com.yunx.app.ui.SnackbarController
-import com.yunx.app.data.update.UpdateChecker
+import com.yunx.app.APP_VERSION
 import com.yunx.app.util.DesktopActions
 
 /** QQ 交流群群号（关于页入口；桌面端无 mqqapi scheme 保证，点击复制群号供用户在 QQ 中搜索） */
@@ -75,7 +75,7 @@ fun AboutScreen(
 ) {
     // 系统返回键 → 返回主页（而不是退出应用）
     BackHandler { onBack() }
-    val versionName = UpdateChecker.currentVersion()
+    val versionName = APP_VERSION
 
     Scaffold(
         modifier = modifier.fillMaxSize(),

@@ -32,7 +32,7 @@ object AppContext {
 
     // ---------- 杂项偏好（必须在下面解析目录之前声明：Kotlin 单例按声明顺序初始化）----------
 
-    /** 杂项偏好（原 "yunx_prefs" SharedPreferences：onboarding_shown / ignored_version） */
+    /** 杂项偏好（原 "yunx_prefs" SharedPreferences：onboarding_shown 等） */
     val miscPrefs: Preferences = Preferences.userRoot().node("yunx/misc")
 
     /**

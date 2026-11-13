@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit
 
 /**
  * 全局 HTTP 客户端管理：
- * - [apiClient]：平台 API（登录/解析/直链）、HLS 下载、更新检查共用，超时宽松；
+ * - [apiClient]：平台 API（登录/解析/直链）、HLS 下载共用，超时宽松；
  * - [downloadClient]：分片下载专用，大 Dispatcher 保障分片并发（默认实例 maxRequestsPerHost=5 会锁死并发）。
  * 所有构建都使用系统证书链和 OkHttp 主机名校验，不提供进程内绕过开关。
  * 所有客户端共用同一 HTTP 协议开关（默认仅 HTTP/1.1）。
@@ -81,7 +81,7 @@ object HttpClients {
         return Proxy(Proxy.Type.HTTP, InetSocketAddress(host, proxyPort))
     }
 
-    /** 普通 API 客户端（各平台 API、HLS、更新检查） */
+    /** 普通 API 客户端（各平台 API、HLS） */
     fun apiClient(): OkHttpClient {
         apiCache?.let { return it }
         synchronized(lock) {

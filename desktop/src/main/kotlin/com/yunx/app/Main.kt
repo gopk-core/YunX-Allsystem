@@ -92,7 +92,7 @@ fun main(args: Array<String>) {
     runCatching { com.yunx.app.data.download.DownloadDebugLog.install() }
     // HTTP 代理装配：按用户设置的三选一模式注入全局 OkHttp 客户端。
     // 必须在 application { } 之前、AppContext.init() 之后执行（此时 Preferences 已可用，
-    // 且早于任何网络请求发出，代理即时对 API / 下载 / 更新检查全部生效）。
+    // 且早于任何网络请求发出，代理即时对 API / 下载全部生效）。
     // 注意：system 模式只在启动（及设置变更）时读一次系统代理，运行中系统代理变化不自动跟随。
     runCatching {
         val settings = com.yunx.app.data.prefs.SettingsRepository()

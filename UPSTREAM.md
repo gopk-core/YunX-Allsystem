@@ -6,9 +6,9 @@ This repository imports the official Windows client and ports it.
 | --- | --- |
 | Upstream | https://github.com/tidain/YunX-Desktop |
 | Branch | `main` |
-| Commit | `3700c1c607eea9517f022318d85cb543f05a85dc` |
-| Date | 2026-11-04 20:37:46 +0800 |
-| Release line | v1.3.3 (`version.txt`) |
+| Commit | `00a030f778a65840e9be65baecb15497a94b04ec` |
+| Date | 2026-11-13 |
+| Release line | v1.3.4 (`version.txt`) |
 | Related Android project | https://github.com/CYQawa/YunX |
 | License | GNU AGPL-3.0 (same as upstream; this port is not relicensed) |
 

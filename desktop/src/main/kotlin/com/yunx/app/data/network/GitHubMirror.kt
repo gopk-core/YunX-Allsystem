@@ -119,6 +119,9 @@ object GitHubMirror {
         return fastestPrefix() ?: PRESETS.first()
     }
 
+    /** 把 GitHub 直链转成镜像站直链：`<prefix><原 URL>`。 */
+    fun mirrorUrl(url: String, prefix: String): String = prefix + url
+
     /** 启动时调用：仅在测速结果过期（或从未测过）时异步刷新一次 */
     fun ensureFresh() {
         val age = System.currentTimeMillis() - SettingsRepository().githubMirrorProbedAt

@@ -3,7 +3,7 @@ package com.yunx.app.ui.components
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.yunx.app.data.network.HttpClients
-import com.yunx.app.data.update.UpdateChecker
+import com.yunx.app.data.network.GitHubMirror
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -108,7 +108,7 @@ object RemoteImageLoader {
         // 镜像前缀仅对 GitHub 域生效；外链图（图床 / imgur 等）直接直连，避免无谓的失败镜像请求
         val useMirror = !mirrorPrefix.isNullOrBlank() && isGitHubDomain(url)
         val candidates = buildList {
-            if (useMirror) add(UpdateChecker.mirrorUrl(url, mirrorPrefix!!))
+            if (useMirror) add(GitHubMirror.mirrorUrl(url, mirrorPrefix!!))
             add(url)
         }
         val client = HttpClients.downloadClient()

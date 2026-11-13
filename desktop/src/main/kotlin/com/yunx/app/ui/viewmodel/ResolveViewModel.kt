@@ -40,7 +40,6 @@ import com.yunx.app.data.network.StarSeaApi
 import com.yunx.app.data.network.UCConstants
 import com.yunx.app.data.network.XunleiConstants
 import com.yunx.app.data.network.XunleiKouling
-import com.yunx.app.data.update.UpdateChecker
 import com.yunx.app.data.network.model.DownloadLink
 import com.yunx.app.data.network.model.ShareFile
 import com.yunx.app.data.network.model.ShareSession
@@ -1542,7 +1541,7 @@ class ResolveViewModel(
                     batchProgress = "${index + 1}/${tasks.size}"
                     runCatching {
                         downloadManager.enqueue(
-                            url = UpdateChecker.mirrorUrl(t.first, prefix),
+                            url = GitHubMirror.mirrorUrl(t.first, prefix),
                             fileName = t.second,
                             size = t.third,
                             platform = DownloadPlatform.GITHUB,
@@ -2036,7 +2035,7 @@ class ResolveViewModel(
                 try {
                     val prefix = mirrorPrefixProvider()
                     downloadManager.enqueue(
-                        url = UpdateChecker.mirrorUrl(link.downloadUrl, prefix),
+                        url = GitHubMirror.mirrorUrl(link.downloadUrl, prefix),
                         fileName = link.filename,
                         size = link.size,
                         platform = DownloadPlatform.GITHUB,
