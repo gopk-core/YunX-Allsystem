@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yunx.app.APP_IS_PREVIEW
 import com.yunx.app.ui.BackHandler
+import com.yunx.app.ui.PortNotice
 import com.yunx.app.ui.SnackbarController
 import com.yunx.app.APP_VERSION
 import com.yunx.app.util.DesktopActions
@@ -130,7 +131,7 @@ fun AboutScreen(
 
             // ---------- 开源协议 ----------
             Text(
-                text = "本项目基于 GNU AGPL-3.0 协议开源",
+                text = "本项目基于 GNU AGPL-3.0 协议开源。${PortNotice.TEXT}",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth(),
@@ -140,7 +141,9 @@ fun AboutScreen(
             // ---------- 重新预览欢迎界面 ----------
             PreviewOnboardingCard(onClick = onPreviewOnboarding)
 
-            // ---------- 开源仓库 ----------
+            // ---------- 开源仓库：本移植为主地址，官方仓库保留署名 ----------
+            PortRepoCard()
+            Spacer(modifier = Modifier.height(8.dp))
             GitHubCard()
             Spacer(modifier = Modifier.height(8.dp))
             DesktopRepoCard()
@@ -537,7 +540,49 @@ private fun CardIcon(icon: ImageVector) {
     }
 }
 
-/** 安卓版仓库入口卡片 */
+/** 本移植的项目地址。点击打开 gopk-core/YunX-Allsystem。 */
+@Composable
+private fun PortRepoCard() {
+    Card(
+        onClick = { DesktopActions.openUrl(PortNotice.URL) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            CardIcon(Icons.Outlined.Code)
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "开源仓库",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = PortNotice.TEXT,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+            Icon(
+                imageVector = Icons.Outlined.OpenInNew,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+    }
+}
+
+/** 官方安卓版仓库（署名，不是本构建的项目地址） */
 @Composable
 private fun GitHubCard() {
     Card(
@@ -573,7 +618,7 @@ private fun GitHubCard() {
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "安卓版仓库",
+                    text = "官方安卓版",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium
                 )
@@ -593,7 +638,7 @@ private fun GitHubCard() {
     }
 }
 
-/** PC 版仓库入口卡片 */
+/** 官方 Windows 客户端仓库（署名，不是本构建的项目地址） */
 @Composable
 private fun DesktopRepoCard() {
     Card(
@@ -629,7 +674,7 @@ private fun DesktopRepoCard() {
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "PC 版仓库",
+                    text = "官方 Windows 客户端",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium
                 )

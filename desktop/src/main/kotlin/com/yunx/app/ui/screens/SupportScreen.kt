@@ -1,6 +1,8 @@
 package com.yunx.app.ui.screens
 
 import com.yunx.app.ui.BackHandler
+import com.yunx.app.ui.PortNotice
+import com.yunx.app.util.DesktopActions
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,7 +55,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yunx.app.ui.SnackbarController
 import com.yunx.app.ui.components.FadeAlertDialog
-import com.yunx.app.util.DesktopActions
 
 /**
  * 支持开发页：展示赞赏码与开源仓库入口。
@@ -279,11 +280,18 @@ fun SupportScreen(
                 textAlign = TextAlign.Center
             )
 
-            // ---------- 开源仓库入口 ----------
+            // ---------- 开源仓库：本移植为主地址 ----------
+            Text(
+                text = PortNotice.TEXT,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
             Button(
                 onClick = {
-                    DesktopActions.openUrl("https://github.com/CYQawa/YunX")
-                    SnackbarController.show("已打开开源仓库页面")
+                    DesktopActions.openUrl(PortNotice.URL)
+                    SnackbarController.show("已打开移植版项目地址")
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -295,16 +303,15 @@ fun SupportScreen(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("安卓版仓库")
+                Text("打开移植版仓库")
             }
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // ---------- PC 版仓库入口 ----------
             OutlinedButton(
                 onClick = {
-                    DesktopActions.openUrl("https://github.com/tidain/YunX-Desktop")
-                    SnackbarController.show("已打开 PC 版仓库")
+                    DesktopActions.openUrl(PortNotice.OFFICIAL_ANDROID)
+                    SnackbarController.show("已打开官方安卓版仓库")
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -316,7 +323,27 @@ fun SupportScreen(
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("PC 版仓库")
+                Text("官方安卓版仓库")
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            OutlinedButton(
+                onClick = {
+                    DesktopActions.openUrl(PortNotice.OFFICIAL_DESKTOP)
+                    SnackbarController.show("已打开官方 Windows 客户端仓库")
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.OpenInNew,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("官方 Windows 客户端")
             }
         }
     }

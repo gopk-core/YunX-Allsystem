@@ -80,6 +80,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yunx.app.APP_VERSION
 import com.yunx.app.ui.GlobalSnackbarHost
+import com.yunx.app.ui.PortNotice
 import com.yunx.app.ui.SnackbarController
 import com.yunx.app.ui.theme.MotionPolicy
 import com.yunx.app.util.DesktopActions
@@ -353,7 +354,7 @@ private fun FactChip(text: String) {
 private fun GitHubCard() {
     Card(
         onClick = {
-            DesktopActions.openUrl("https://github.com/tidain/YunX-Desktop")
+            DesktopActions.openUrl(PortNotice.URL)
         },
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -388,9 +389,14 @@ private fun GitHubCard() {
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = "github.com/tidain/YunX-Desktop",
+                    text = PortNotice.TEXT,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "官方 Windows 客户端 github.com/tidain/YunX-Desktop · 官方安卓版 github.com/CYQawa/YunX",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
                 )
             }
             Icon(
@@ -640,7 +646,7 @@ private fun TermsPage() {
             icon = Icons.Outlined.Code,
             title = "开源协议",
             paragraphs = listOf(
-                "本项目基于 GNU AGPL-3.0 协议开源，源码公开于 github.com/tidain/YunX-Desktop。"
+                "本项目基于 GNU AGPL-3.0 协议开源。${PortNotice.TEXT}。官方 Windows 客户端为 github.com/tidain/YunX-Desktop，官方安卓版为 github.com/CYQawa/YunX。"
             )
         )
 
